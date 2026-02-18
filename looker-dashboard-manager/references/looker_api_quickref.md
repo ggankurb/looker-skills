@@ -43,4 +43,5 @@ This skill uses Looker API 4.0 dashboard endpoints.
 - The CLI does not auto-read `LOOKER_*` shell environment variables.
 - Use `--dry-run` before any destructive change to inspect the outgoing request.
 - The CLI enforces creator-only mutation for dashboards and dashboard elements.
+- The CLI automatically validates query-backed tiles after mutating commands and fails fast when any tile query errors.
 - For calculated dashboard metrics (for example, ratios not yet modeled in LookML), use `element-requery --dynamic-fields-json` with a table calculation definition.

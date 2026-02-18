@@ -30,7 +30,8 @@ Notes:
 2. If you are not the dashboard creator, run `copy` first and work on the copied dashboard.
 3. Inspect tiles with `elements` and `element-get`.
 4. Change dashboard-level metadata with `create`, `update`, `move`, or `delete`, or change tile-level metrics with `element-requery` / `element-update`.
-5. Re-check state with `get`, `elements`, or `element-get`.
+5. Validate tile render health with `validate` (or rely on auto-validation after mutating commands).
+6. Re-check state with `get`, `elements`, or `element-get`.
 
 ## Command Runner
 
@@ -50,6 +51,7 @@ Available commands:
 - `move` - move dashboard to another folder
 - `delete` - delete dashboard (requires `--yes`)
 - `elements` - list dashboard elements with IDs, placement, and query fields
+- `validate` - run all query-backed tiles in a dashboard and fail if any tile errors
 - `element-get` - fetch one dashboard element (includes embedded tile query)
 - `element-update` - patch an element title/query/text
 - `element-requery` - clone a tile query with a new field list and attach it back to the tile
@@ -58,7 +60,13 @@ Useful flags:
 - `--dry-run` prints the API call that would be made without making network requests.
 - `--raw` prints compact JSON.
 - `--base-url`, `--client-id`, `--client-secret` override `.env` values for one run.
+- `--skip-dashboard-validation` skips automatic tile validation after mutating commands.
 - `element-requery --dynamic-fields-json` allows table calculations/custom fields when the needed metric is not a native LookML field.
+
+Validation behavior:
+- After `create`, `copy`, `update`, `move`, `element-update`, and `element-requery`, the CLI automatically validates all query-backed tiles on the affected dashboard.
+- If any tile query fails, the command returns an error with per-tile failure details.
+- Use `validate` for an explicit health check at any time.
 
 Ownership guardrails:
 - `create` is allowed for any user with folder create access.
@@ -89,6 +97,9 @@ python3 scripts/looker_dashboard_cli.py move \
 
 # Inspect tiles in a dashboard (find Productivity section element IDs)
 python3 scripts/looker_dashboard_cli.py elements --dashboard-id "4170"
+
+# Validate all query-backed tiles in a dashboard
+python3 scripts/looker_dashboard_cli.py validate --dashboard-id "4170"
 
 # Update one tile to a per-ticket metric
 python3 scripts/looker_dashboard_cli.py element-requery \

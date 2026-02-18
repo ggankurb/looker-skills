@@ -26,6 +26,12 @@ It does not auto-read `LOOKER_*` shell environment variables.
 - Only the dashboard creator can `update`, `move`, `delete`, `element-update`, or `element-requery`.
 - Non-owners must `copy` a dashboard first and then modify their copy.
 
+## Tile Render Validation
+
+- After `create`, `copy`, `update`, `move`, `element-update`, and `element-requery`, the CLI automatically validates query-backed tiles.
+- If any tile query fails, the command fails and returns per-tile error details.
+- You can run `validate` manually for a dashboard health check.
+
 ## Security Hygiene
 
 - `.env` is gitignored and not committed.

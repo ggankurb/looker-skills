@@ -560,6 +560,72 @@ def summarize_dashboard_elements(dashboard: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def extract_element_query_id(element: Dict[str, Any]) -> Optional[str]:
+    source_query = (element.get("result_maker") or {}).get("query") or element.get("query") or {}
+    query_id = source_query.get("id") or element.get("query_id")
+    if query_id is None:
+        return None
+    query_id_text = str(query_id).strip()
+    return query_id_text or None
+
+
+def validate_dashboard_tiles(client: LookerClient, dashboard_id: str) -> Dict[str, Any]:
+    dashboard = client.get_dashboard(dashboard_id, fields=None)
+    elements = dashboard.get("dashboard_elements") or []
+
+    validated_tiles = []
+    skipped_tiles = []
+    tile_errors = []
+
+    for element in elements:
+        raw_element_id = element.get("id")
+        element_id = str(raw_element_id) if raw_element_id is not None else ""
+        query_id = extract_element_query_id(element)
+        tile_summary = {
+            "element_id": element_id,
+            "title": element.get("title"),
+            "type": element.get("type"),
+            "query_id": query_id,
+        }
+        if not query_id:
+            skipped_tiles.append(tile_summary)
+            continue
+        try:
+            client.run_query(query_id, result_format="json")
+            validated_tiles.append(tile_summary)
+        except LookerAPIError as error:
+            tile_errors.append(
+                {
+                    **tile_summary,
+                    "error": str(error),
+                    "status": error.status,
+                    "details": error.details,
+                }
+            )
+
+    return {
+        "dashboard_id": str(dashboard.get("id", dashboard_id)),
+        "dashboard_title": dashboard.get("title"),
+        "total_tiles": len(elements),
+        "query_backed_tiles": len(validated_tiles) + len(tile_errors),
+        "validated_tile_count": len(validated_tiles),
+        "skipped_tile_count": len(skipped_tiles),
+        "error_count": len(tile_errors),
+        "errors": tile_errors,
+    }
+
+
+def ensure_dashboard_tiles_healthy(client: LookerClient, dashboard_id: str) -> Dict[str, Any]:
+    validation = validate_dashboard_tiles(client, dashboard_id)
+    if validation["error_count"] > 0:
+        raise LookerAPIError(
+            f"Dashboard {dashboard_id} has tile query errors after the change.",
+            status=422,
+            details=validation,
+        )
+    return validation
+
+
 def get_authenticated_user_id(client: LookerClient) -> str:
     user = client.get_current_user(fields="id,display_name,email")
     user_id = str(user.get("id") or "").strip()
@@ -644,6 +710,11 @@ def build_parser(env_values: Dict[str, str]) -> argparse.ArgumentParser:
         action="store_true",
         help="Print compact JSON (single line).",
     )
+    parser.add_argument(
+        "--skip-dashboard-validation",
+        action="store_true",
+        help="Skip automatic dashboard tile validation after mutating commands.",
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -705,6 +776,12 @@ def build_parser(env_values: Dict[str, str]) -> argparse.ArgumentParser:
         help="List dashboard elements with ids, placement, and query fields.",
     )
     elements_cmd.add_argument("--dashboard-id", required=True)
+
+    validate_cmd = subparsers.add_parser(
+        "validate",
+        help="Run all query-backed tiles in a dashboard and fail if any tile errors.",
+    )
+    validate_cmd.add_argument("--dashboard-id", required=True)
 
     element_get_cmd = subparsers.add_parser(
         "element-get",
@@ -794,6 +871,15 @@ def main() -> int:
         )
 
         command = args.command
+        dashboard_id_to_validate: Optional[str] = None
+        auto_validate_commands = {
+            "create",
+            "copy",
+            "update",
+            "move",
+            "element-update",
+            "element-requery",
+        }
         if command == "list":
             result = client.list_dashboards(fields=args.fields)
         elif command == "search":
@@ -818,8 +904,16 @@ def main() -> int:
                 }
             )
             result = client.create_dashboard(payload)
+            if isinstance(result, dict):
+                result_id = result.get("id")
+                if result_id is not None:
+                    dashboard_id_to_validate = str(result_id)
         elif command == "copy":
             result = client.copy_dashboard(args.dashboard_id, args.folder_id)
+            if isinstance(result, dict):
+                result_id = result.get("id")
+                if result_id is not None:
+                    dashboard_id_to_validate = str(result_id)
         elif command == "update":
             payload = compact_dict(
                 {
@@ -835,9 +929,11 @@ def main() -> int:
                 parser.error("update requires at least one field to change")
             enforce_dashboard_owner(client, args.dashboard_id, action="update")
             result = client.update_dashboard(args.dashboard_id, payload)
+            dashboard_id_to_validate = str(args.dashboard_id)
         elif command == "move":
             enforce_dashboard_owner(client, args.dashboard_id, action="move")
             result = client.move_dashboard(args.dashboard_id, args.folder_id)
+            dashboard_id_to_validate = str(args.dashboard_id)
         elif command == "delete":
             if not args.yes:
                 parser.error("delete requires --yes")
@@ -851,6 +947,8 @@ def main() -> int:
         elif command == "elements":
             dashboard = client.get_dashboard(args.dashboard_id, fields=None)
             result = summarize_dashboard_elements(dashboard)
+        elif command == "validate":
+            result = ensure_dashboard_tiles_healthy(client, args.dashboard_id)
         elif command == "element-get":
             result = client.get_dashboard_element(args.element_id)
         elif command == "element-update":
@@ -867,8 +965,11 @@ def main() -> int:
                     "element-update requires at least one change flag "
                     "(--title/--query-id/--body-text/--subtitle-text)"
                 )
-            enforce_element_owner(client, args.element_id, action="update")
+            source_element = enforce_element_owner(client, args.element_id, action="update")
             result = client.update_dashboard_element(args.element_id, payload)
+            source_dashboard_id = source_element.get("dashboard_id")
+            if source_dashboard_id is not None:
+                dashboard_id_to_validate = str(source_dashboard_id)
         elif command == "element-requery":
             if args.dry_run:
                 parser.error(
@@ -885,9 +986,29 @@ def main() -> int:
                 run_smoke_test=args.run_smoke_test,
                 source_element=source_element,
             )
+            source_dashboard_id = source_element.get("dashboard_id")
+            if source_dashboard_id is not None:
+                dashboard_id_to_validate = str(source_dashboard_id)
         else:
             parser.error(f"Unsupported command: {command}")
             return 2
+
+        if (
+            command in auto_validate_commands
+            and not args.skip_dashboard_validation
+            and not args.dry_run
+        ):
+            if not dashboard_id_to_validate:
+                raise LookerAPIError(
+                    "Could not determine dashboard id for post-change tile validation.",
+                    status=500,
+                    details={"command": command},
+                )
+            dashboard_validation = ensure_dashboard_tiles_healthy(client, dashboard_id_to_validate)
+            if isinstance(result, dict):
+                result = {**result, "dashboard_validation": dashboard_validation}
+            else:
+                result = {"result": result, "dashboard_validation": dashboard_validation}
 
         print_json(result, raw=args.raw)
         return 0
