@@ -19,8 +19,8 @@ cp sample.env .env
 Notes:
 - `LOOKER_BASE_URL` can be either your instance root (`https://<instance>.cloud.looker.com`) or already include `/api/4.0`.
 - This skill normalizes the URL and uses API 4.0 endpoints.
-- The CLI auto-loads `.env` from this skill folder on every run.
-- First run fails fast with a setup prompt if `.env` is missing.
+- The CLI only checks `.env` in this skill folder (`looker-dashboard-manager/.env`).
+- First run fails fast with a setup prompt if this local `.env` is missing.
 - The CLI does not auto-read `LOOKER_*` shell environment variables; it expects `.env` (or explicit command flags).
 - Runs fail fast if credentials are missing or still using placeholder values from `sample.env`.
 

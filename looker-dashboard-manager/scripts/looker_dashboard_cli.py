@@ -37,9 +37,6 @@ class LookerAPIError(RuntimeError):
 
 
 def resolve_env_path() -> Path:
-    configured = os.getenv("LOOKER_ENV_FILE")
-    if configured:
-        return Path(configured).expanduser().resolve()
     return Path(__file__).resolve().parents[1] / DEFAULT_ENV_FILE_NAME
 
 
@@ -96,7 +93,6 @@ def enforce_credential_requirements(
     parser: argparse.ArgumentParser,
     args: argparse.Namespace,
     env_path: Path,
-    env_file_exists: bool,
 ) -> None:
     values = {
         "LOOKER_BASE_URL": args.base_url,
@@ -104,15 +100,6 @@ def enforce_credential_requirements(
         "LOOKER_CLIENT_SECRET": args.client_secret,
     }
     required_keys = ["LOOKER_BASE_URL"] if args.dry_run else list(ENV_REQUIRED_KEYS)
-    missing_all_required = all(is_missing_or_placeholder(values.get(key), key) for key in required_keys)
-    if not env_file_exists and missing_all_required:
-        sample_env_path = env_path.parent / SAMPLE_ENV_FILE_NAME
-        parser.error(
-            "First-time setup required. "
-            f"Create {env_path} and add your Looker credentials before running commands. "
-            f"Quick start: cp {sample_env_path} {env_path}"
-        )
-
     missing = [key for key in required_keys if is_missing_or_placeholder(values.get(key), key)]
     if missing:
         sample_env_path = env_path.parent / SAMPLE_ENV_FILE_NAME
@@ -121,6 +108,17 @@ def enforce_credential_requirements(
             f"Set real values for {', '.join(missing)} in {env_path}. "
             f"Use {sample_env_path} as the template for first-time setup."
         )
+
+
+def enforce_local_env_file_exists(parser: argparse.ArgumentParser, env_path: Path) -> None:
+    if env_path.is_file():
+        return
+    sample_env_path = env_path.parent / SAMPLE_ENV_FILE_NAME
+    parser.error(
+        "First-time setup required. "
+        f"Local .env not found at {env_path}. "
+        f"Create it first: cp {sample_env_path} {env_path}"
+    )
 
 
 def parse_bool(value: str) -> bool:
@@ -779,12 +777,12 @@ def normalize_dynamic_fields_json(value: Optional[str]) -> Optional[str]:
 
 def main() -> int:
     env_path = resolve_env_path()
-    env_file_exists = env_path.is_file()
     env_values = load_env_file(env_path)
     parser = build_parser(env_values)
     args = parser.parse_args()
 
-    enforce_credential_requirements(parser, args, env_path, env_file_exists=env_file_exists)
+    enforce_local_env_file_exists(parser, env_path)
+    enforce_credential_requirements(parser, args, env_path)
 
     try:
         client = LookerClient(

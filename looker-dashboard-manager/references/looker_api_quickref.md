@@ -39,7 +39,7 @@ This skill uses Looker API 4.0 dashboard endpoints.
 ## Notes
 
 - The CLI normalizes `LOOKER_BASE_URL` to include `/api/4.0` when needed.
-- The CLI auto-loads `.env` from the skill directory, prompts first-time setup when `.env` is missing, and blocks runs with placeholder credentials.
+- The CLI only checks `.env` in the local skill directory, prompts first-time setup when that `.env` is missing, and blocks runs with placeholder credentials.
 - The CLI does not auto-read `LOOKER_*` shell environment variables.
 - Use `--dry-run` before any destructive change to inspect the outgoing request.
 - The CLI enforces creator-only mutation for dashboards and dashboard elements.
