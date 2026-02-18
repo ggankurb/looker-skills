@@ -1,0 +1,17 @@
+# Secrets / local env files
+.env
+**/.env
+*.env
+!sample.env
+!**/sample.env
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+
+# Local virtual environments
+.venv/
+venv/
