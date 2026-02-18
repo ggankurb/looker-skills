@@ -17,7 +17,8 @@ cp sample.env .env
 # edit .env and set real LOOKER_* values
 ```
 
-The CLI auto-loads `.env` on startup and refuses to run with missing or placeholder credentials.
+The CLI auto-loads `.env` on startup, prompts first-time users to create `.env` when missing, and refuses to run with missing or placeholder credentials.
+It does not auto-read `LOOKER_*` shell environment variables.
 
 ## Ownership Rules Enforced by the CLI
 

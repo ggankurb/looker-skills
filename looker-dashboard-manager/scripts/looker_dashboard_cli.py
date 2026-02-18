@@ -50,9 +50,10 @@ def strip_wrapping_quotes(value: str) -> str:
     return stripped
 
 
-def load_env_file(env_path: Path) -> bool:
+def load_env_file(env_path: Path) -> Dict[str, str]:
+    values: Dict[str, str] = {}
     if not env_path.is_file():
-        return False
+        return values
 
     for line in env_path.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
@@ -67,8 +68,18 @@ def load_env_file(env_path: Path) -> bool:
         if not env_key:
             continue
         env_value = strip_wrapping_quotes(value)
-        os.environ.setdefault(env_key, env_value)
-    return True
+        values[env_key] = env_value
+    return values
+
+
+def timeout_default_from_env(env_values: Dict[str, str]) -> int:
+    raw = strip_wrapping_quotes(env_values.get("LOOKER_TIMEOUT_SECONDS", "")).strip()
+    if not raw:
+        return 30
+    try:
+        return int(raw)
+    except ValueError:
+        return 30
 
 
 def is_missing_or_placeholder(value: Optional[str], key: str) -> bool:
@@ -82,7 +93,10 @@ def is_missing_or_placeholder(value: Optional[str], key: str) -> bool:
 
 
 def enforce_credential_requirements(
-    parser: argparse.ArgumentParser, args: argparse.Namespace, env_path: Path
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+    env_path: Path,
+    env_file_exists: bool,
 ) -> None:
     values = {
         "LOOKER_BASE_URL": args.base_url,
@@ -90,6 +104,15 @@ def enforce_credential_requirements(
         "LOOKER_CLIENT_SECRET": args.client_secret,
     }
     required_keys = ["LOOKER_BASE_URL"] if args.dry_run else list(ENV_REQUIRED_KEYS)
+    missing_all_required = all(is_missing_or_placeholder(values.get(key), key) for key in required_keys)
+    if not env_file_exists and missing_all_required:
+        sample_env_path = env_path.parent / SAMPLE_ENV_FILE_NAME
+        parser.error(
+            "First-time setup required. "
+            f"Create {env_path} and add your Looker credentials before running commands. "
+            f"Quick start: cp {sample_env_path} {env_path}"
+        )
+
     missing = [key for key in required_keys if is_missing_or_placeholder(values.get(key), key)]
     if missing:
         sample_env_path = env_path.parent / SAMPLE_ENV_FILE_NAME
@@ -590,28 +613,28 @@ def enforce_element_owner(client: LookerClient, element_id: str, action: str) ->
     return element
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(env_values: Dict[str, str]) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Manage Looker dashboards using the Looker API.")
     parser.add_argument(
         "--base-url",
-        default=os.getenv("LOOKER_BASE_URL"),
-        help="Looker base URL (instance URL or /api/4.0 URL). Defaults to LOOKER_BASE_URL.",
+        default=env_values.get("LOOKER_BASE_URL"),
+        help="Looker base URL (instance URL or /api/4.0 URL). Defaults to value in local .env.",
     )
     parser.add_argument(
         "--client-id",
-        default=os.getenv("LOOKER_CLIENT_ID"),
-        help="Looker API client_id. Defaults to LOOKER_CLIENT_ID.",
+        default=env_values.get("LOOKER_CLIENT_ID"),
+        help="Looker API client_id. Defaults to value in local .env.",
     )
     parser.add_argument(
         "--client-secret",
-        default=os.getenv("LOOKER_CLIENT_SECRET"),
-        help="Looker API client_secret. Defaults to LOOKER_CLIENT_SECRET.",
+        default=env_values.get("LOOKER_CLIENT_SECRET"),
+        help="Looker API client_secret. Defaults to value in local .env.",
     )
     parser.add_argument(
         "--timeout",
         type=int,
-        default=int(os.getenv("LOOKER_TIMEOUT_SECONDS", "30")),
-        help="HTTP timeout in seconds. Defaults to LOOKER_TIMEOUT_SECONDS or 30.",
+        default=timeout_default_from_env(env_values),
+        help="HTTP timeout in seconds. Defaults to LOOKER_TIMEOUT_SECONDS in local .env or 30.",
     )
     parser.add_argument(
         "--dry-run",
@@ -756,11 +779,12 @@ def normalize_dynamic_fields_json(value: Optional[str]) -> Optional[str]:
 
 def main() -> int:
     env_path = resolve_env_path()
-    load_env_file(env_path)
-    parser = build_parser()
+    env_file_exists = env_path.is_file()
+    env_values = load_env_file(env_path)
+    parser = build_parser(env_values)
     args = parser.parse_args()
 
-    enforce_credential_requirements(parser, args, env_path)
+    enforce_credential_requirements(parser, args, env_path, env_file_exists=env_file_exists)
 
     try:
         client = LookerClient(

@@ -20,7 +20,9 @@ Notes:
 - `LOOKER_BASE_URL` can be either your instance root (`https://<instance>.cloud.looker.com`) or already include `/api/4.0`.
 - This skill normalizes the URL and uses API 4.0 endpoints.
 - The CLI auto-loads `.env` from this skill folder on every run.
-- First run fails fast if credentials are missing or still using placeholder values from `sample.env`.
+- First run fails fast with a setup prompt if `.env` is missing.
+- The CLI does not auto-read `LOOKER_*` shell environment variables; it expects `.env` (or explicit command flags).
+- Runs fail fast if credentials are missing or still using placeholder values from `sample.env`.
 
 ## Quick Workflow
 
@@ -55,7 +57,7 @@ Available commands:
 Useful flags:
 - `--dry-run` prints the API call that would be made without making network requests.
 - `--raw` prints compact JSON.
-- `--base-url`, `--client-id`, `--client-secret` override env vars for one run.
+- `--base-url`, `--client-id`, `--client-secret` override `.env` values for one run.
 - `element-requery --dynamic-fields-json` allows table calculations/custom fields when the needed metric is not a native LookML field.
 
 Ownership guardrails:
